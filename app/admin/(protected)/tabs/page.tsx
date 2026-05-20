@@ -131,7 +131,11 @@ export default function TabsAdminPage() {
             key={tab.id}
             tab={tab}
             onChange={(updated) =>
-              setTabs((prev) => prev.map((t, i) => (i === index ? { ...t, ...updated } : t)))
+              setTabs((prev) =>
+                prev.map((t, i) =>
+                  i === index ? { ...t, ...updated, id: t.id } : t,
+                ),
+              )
             }
             onSave={() => saveTab(tabs[index], index)}
             onDelete={() => deleteTab(tab.id)}
