@@ -115,11 +115,9 @@ export default function BenefitsAdminPage() {
       </div>
 
       <div className="hidden overflow-hidden rounded-md bg-white md:block">
-        <div className="grid grid-cols-[1fr_180px_120px_160px_100px_120px] items-center bg-[#f4f2fc] px-4 py-2.5 text-[10px] uppercase tracking-[0.15em] text-[#454652]">
+        <div className="grid grid-cols-[1fr_200px_120px_120px] items-center bg-[#f4f2fc] px-4 py-2.5 text-[10px] uppercase tracking-[0.15em] text-[#454652]">
           <div>Title</div>
-          <div>Category</div>
-          <div>Type</div>
-          <div>Value</div>
+          <div>Tabs</div>
           <div>Published</div>
           <div className="text-right">Actions</div>
         </div>
@@ -127,12 +125,23 @@ export default function BenefitsAdminPage() {
         {items.map((benefit) => (
           <div
             key={benefit.id}
-            className="grid grid-cols-[1fr_180px_120px_160px_100px_120px] items-center border-t border-[#f4f2fc] px-4 py-3 text-sm transition-colors hover:bg-[#f4f2fc]"
+            className="grid grid-cols-[1fr_200px_120px_120px] items-center border-t border-[#f4f2fc] px-4 py-3 text-sm transition-colors hover:bg-[#f4f2fc]"
           >
             <div className="truncate pr-2 font-medium">{benefit.title}</div>
-            <div className="truncate text-xs text-[#454652]">{benefit.category || "—"}</div>
-            <div className="text-xs text-[#454652]">{benefit.kind}</div>
-            <div className="truncate text-xs text-[#454652]">{benefit.value}</div>
+            <div className="flex flex-wrap gap-1">
+              {benefit.tabs.length === 0 ? (
+                <span className="text-xs text-[#454652]">—</span>
+              ) : (
+                benefit.tabs.map((tab) => (
+                  <span
+                    key={tab.id}
+                    className="inline-flex items-center rounded bg-[#e9e7f0] px-2 py-0.5 text-[11px] text-[#454652]"
+                  >
+                    {tab.name}
+                  </span>
+                ))
+              )}
+            </div>
             <div>
               <input
                 type="checkbox"
@@ -172,14 +181,18 @@ export default function BenefitsAdminPage() {
         {items.map((benefit) => (
           <div key={`m-${benefit.id}`} className="rounded-md bg-white p-3">
             <div className="mb-2 font-medium text-sm break-words">{benefit.title}</div>
-            <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs text-[#454652]">
-              <div>Категория</div>
-              <div className="truncate">{benefit.category || "—"}</div>
-              <div>Тип</div>
-              <div>{benefit.kind}</div>
-              <div>Значение</div>
-              <div className="truncate">{benefit.value}</div>
-            </div>
+            {benefit.tabs.length > 0 && (
+              <div className="mb-2 flex flex-wrap gap-1">
+                {benefit.tabs.map((tab) => (
+                  <span
+                    key={tab.id}
+                    className="inline-flex items-center rounded bg-[#e9e7f0] px-2 py-0.5 text-[11px] text-[#454652]"
+                  >
+                    {tab.name}
+                  </span>
+                ))}
+              </div>
+            )}
             <div className="mt-3 flex items-center justify-between">
               <label className="flex items-center gap-2 text-xs text-[#454652]">
                 <input

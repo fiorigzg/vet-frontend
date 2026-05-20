@@ -252,9 +252,11 @@ export function BenefitsMap() {
                         <span className="block text-[15px] text-[#1A1D26]">
                           {b.title}
                         </span>
-                        <span className="block text-[13px] text-[#718096]">
-                          {b.category}
-                        </span>
+                        {b.address && (
+                          <span className="block text-[13px] text-[#718096]">
+                            {b.address}
+                          </span>
+                        )}
                       </button>
                     </li>
                   ))}
