@@ -5,7 +5,9 @@
 FROM node:22-alpine AS deps
 WORKDIR /app
 COPY package.json yarn.lock ./
-RUN yarn install --frozen-lockfile
+# registry.yarnpkg.com часто недоступен из РФ — переключаемся на зеркало.
+RUN yarn config set registry https://registry.npmmirror.com && \
+    yarn install --frozen-lockfile --network-timeout 600000
 
 
 # --- dev ------------------------------------------------------------------
