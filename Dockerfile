@@ -6,7 +6,10 @@ FROM node:22-alpine AS deps
 WORKDIR /app
 COPY package.json yarn.lock ./
 # registry.yarnpkg.com часто недоступен из РФ — переключаемся на зеркало.
+# --frozen-lockfile сверяет URL дословно с yarn.lock, поэтому переписываем
+# их через sed (DNS до yarnpkg.com из контейнера не резолвится).
 RUN yarn config set registry https://registry.npmmirror.com && \
+    sed -i 's|https://registry\.yarnpkg\.com|https://registry.npmmirror.com|g' yarn.lock && \
     yarn install --frozen-lockfile --network-timeout 600000
 
 
