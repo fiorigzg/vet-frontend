@@ -1,4 +1,5 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap&subset=cyrillic');
+@import url('https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&display=swap');
 
 @import "tailwindcss";
 @import "tw-animate-css";
@@ -207,6 +208,17 @@
 :focus-visible {
   outline: 2px solid #2b6cb0;
   outline-offset: 2px;
+}
+
+/* Form fields opt out of the global focus ring — they show focus via their
+   own border/bg state. Keep buttons and links accessible with the ring. */
+input:focus,
+input:focus-visible,
+textarea:focus,
+textarea:focus-visible,
+select:focus,
+select:focus-visible {
+  outline: none;
 }
 
 /* ============================================================================

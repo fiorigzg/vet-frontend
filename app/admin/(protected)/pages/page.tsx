@@ -8,20 +8,30 @@ import {
   ChevronDown,
   Download,
   ExternalLink,
+  ListChecks,
   Plus,
   Search,
   SquareDashed,
   Trash2,
+  Undo2,
   Upload,
 } from "lucide-react";
 import { adminApi, UnauthorizedError } from "@/lib/adminApi";
 
 interface DraftBenefit {
-  category?: string | null;
-  benefit?: string | null;
-  discount_value?: string | null;
+  title?: string | null;
+  summary?: string | null;
+  description?: string | null;
   conditions?: string | null;
-  documents?: string | null;
+  who_applies?: string | null;
+  validity?: string | null;
+  value?: string | null;
+  regulation_level?: string | null;
+  category_slug?: string | null;
+  // Legacy crawler fields (pre-schema-change drafts).
+  benefit?: string | null;
+  category?: string | null;
+  discount_value?: string | null;
 }
 
 interface PageItem {
@@ -56,6 +66,7 @@ export default function PagesAdminPage() {
   // pageId → { sourceIndex: benefitId }
   const [promotedByPage, setPromotedByPage] = useState<Record<number, Record<string, number>>>({});
   const [promoting, setPromoting] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const totalPages = Math.max(1, Math.ceil(total / PER_PAGE));
@@ -183,6 +194,75 @@ export default function PagesAdminPage() {
     });
   }
 
+  function selectAllOnPage() {
+    setSelected(pages.map((p) => p.id));
+  }
+
+  // Promote every draft of every selected page. The promote endpoint is
+  // idempotent, so already-promoted drafts are returned as-is.
+  async function promoteAllSelected() {
+    const targets = pages.filter(
+      (p) => selected.includes(p.id) && Array.isArray(p.benefits) && p.benefits.length,
+    );
+    if (!targets.length) return;
+    setBulkBusy(true);
+    for (const page of targets) {
+      const drafts = page.benefits as unknown[];
+      for (let idx = 0; idx < drafts.length; idx++) {
+        const result = await safeApi(() =>
+          adminApi<{ id: number }>("/admin/benefits/promote", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ page_id: page.id, index: idx }),
+          }),
+        );
+        if (result) {
+          setPromotedByPage((prev) => ({
+            ...prev,
+            [page.id]: { ...(prev[page.id] ?? {}), [String(idx)]: result.id },
+          }));
+        }
+      }
+    }
+    setBulkBusy(false);
+  }
+
+  // Unpromote one draft = delete the Benefit row it created.
+  async function unpromoteDraft(pageId: number, index: number, benefitId: number) {
+    await safeApi(() => adminApi(`/admin/benefits/${benefitId}`, { method: "DELETE" }));
+    setPromotedByPage((prev) => {
+      const map = { ...(prev[pageId] ?? {}) };
+      delete map[String(index)];
+      return { ...prev, [pageId]: map };
+    });
+  }
+
+  // Delete every promoted Benefit of every selected page.
+  async function unpromoteAllSelected() {
+    if (!selected.length) return;
+    if (
+      !window.confirm(
+        "Удалить все промотированные Benefit для выбранных страниц?",
+      )
+    )
+      return;
+    setBulkBusy(true);
+    for (const pageId of selected) {
+      let map = promotedByPage[pageId];
+      if (map === undefined) {
+        const data = await safeApi(() =>
+          adminApi<{ map: Record<string, number> }>(`/admin/benefits/by-page/${pageId}`),
+        );
+        map = data?.map ?? {};
+      }
+      for (const benefitId of Object.values(map)) {
+        await safeApi(() => adminApi(`/admin/benefits/${benefitId}`, { method: "DELETE" }));
+      }
+      setPromotedByPage((prev) => ({ ...prev, [pageId]: {} }));
+    }
+    setBulkBusy(false);
+  }
+
   async function exportAllBenefits() {
     const items = await safeApi(() => adminApi<PageItem[]>("/pages/with-benefits"));
     if (!items) return;
@@ -249,6 +329,16 @@ export default function PagesAdminPage() {
 
           <button
             type="button"
+            onClick={selectAllOnPage}
+            disabled={!pages.length}
+            className="inline-flex items-center gap-1.5 rounded-md bg-[#e9e7f0] px-4 py-2 text-xs font-medium text-[#1a1b22] hover:bg-[#e3e1ea] disabled:opacity-40"
+          >
+            <ListChecks className="h-4 w-4" aria-hidden="true" />
+            Select all on this page
+          </button>
+
+          <button
+            type="button"
             onClick={() => setSelected([])}
             disabled={!hasSelection}
             className={`inline-flex items-center gap-1.5 rounded-md px-4 py-2 text-xs font-medium disabled:opacity-40 ${
@@ -273,6 +363,31 @@ export default function PagesAdminPage() {
           >
             <Download className="h-4 w-4" aria-hidden="true" />
             Export JSON
+          </button>
+
+          <button
+            type="button"
+            onClick={promoteAllSelected}
+            disabled={!hasSelection || bulkBusy}
+            className="inline-flex items-center gap-1.5 rounded-md px-4 py-2 text-xs font-semibold text-white disabled:opacity-40"
+            style={{ background: "linear-gradient(135deg, #24389c, #3f51b5)" }}
+          >
+            <Plus className="h-4 w-4" aria-hidden="true" />
+            {bulkBusy ? "Working..." : "Promote all"}
+          </button>
+
+          <button
+            type="button"
+            onClick={unpromoteAllSelected}
+            disabled={!hasSelection || bulkBusy}
+            className={`inline-flex items-center gap-1.5 rounded-md px-4 py-2 text-xs font-medium disabled:opacity-40 ${
+              hasSelection && !bulkBusy
+                ? "bg-amber-50 text-[#92400e] hover:bg-amber-100"
+                : "bg-[#e9e7f0] text-[#454652]"
+            }`}
+          >
+            <Undo2 className="h-4 w-4" aria-hidden="true" />
+            Unpromote all
           </button>
 
           <button
@@ -373,6 +488,7 @@ export default function PagesAdminPage() {
                   promoted={promotedByPage[page.id] ?? {}}
                   promoting={promoting}
                   onPromote={(idx) => promoteDraft(page.id, idx)}
+                  onUnpromote={(idx, benefitId) => unpromoteDraft(page.id, idx, benefitId)}
                 />
               </div>
             )}
@@ -461,6 +577,7 @@ export default function PagesAdminPage() {
                   promoted={promotedByPage[page.id] ?? {}}
                   promoting={promoting}
                   onPromote={(idx) => promoteDraft(page.id, idx)}
+                  onUnpromote={(idx, benefitId) => unpromoteDraft(page.id, idx, benefitId)}
                 />
               </div>
             )}
@@ -523,11 +640,13 @@ function DraftBenefitsList({
   promoted,
   promoting,
   onPromote,
+  onUnpromote,
 }: {
   page: PageItem;
   promoted: Record<string, number>;
   promoting: Set<string>;
   onPromote: (index: number) => void;
+  onUnpromote: (index: number, benefitId: number) => void;
 }) {
   if (!Array.isArray(page.benefits) || page.benefits.length === 0) {
     return <p className="text-xs italic text-[#454652]">No benefits found</p>;
@@ -540,31 +659,49 @@ function DraftBenefitsList({
         const isPromoted = benefitId !== undefined;
         const isLoading = promoting.has(`${page.id}-${idx}`);
 
+        const draftTitle = draft.title || draft.benefit || "—";
+        const draftValue = draft.value || draft.discount_value;
+
         return (
           <div key={idx} className="rounded-md bg-white p-3 sm:p-4">
             <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
-              <div className="min-w-0 flex-1">
-                {draft.category && (
-                  <span className="inline-block rounded bg-[#e9e7f0] px-2 py-0.5 text-[11px] text-[#454652]">
-                    {draft.category}
+              <div className="flex min-w-0 flex-1 flex-wrap gap-1.5">
+                {draftValue && (
+                  <span className="inline-block rounded bg-[#cacfff] px-2 py-0.5 text-[11px] text-[#24389c]">
+                    {draftValue}
                   </span>
                 )}
-                {draft.discount_value && (
-                  <span className="ml-2 inline-block rounded bg-[#cacfff] px-2 py-0.5 text-[11px] text-[#24389c]">
-                    {draft.discount_value}
+                {draft.regulation_level && (
+                  <span className="inline-block rounded bg-[#e9e7f0] px-2 py-0.5 text-[11px] text-[#454652]">
+                    {draft.regulation_level}
+                  </span>
+                )}
+                {draft.category_slug && (
+                  <span className="inline-block rounded bg-[#e9e7f0] px-2 py-0.5 text-[11px] text-[#454652]">
+                    {draft.category_slug}
                   </span>
                 )}
               </div>
-              <div className="flex-shrink-0">
+              <div className="flex flex-shrink-0 items-center gap-1.5">
                 {isPromoted ? (
-                  <Link
-                    href={`/admin/benefits/${benefitId}`}
-                    className="inline-flex items-center gap-1 rounded-md bg-green-50 px-3 py-1.5 text-xs font-medium text-green-700 hover:bg-green-100"
-                  >
-                    <Check className="h-3.5 w-3.5" aria-hidden="true" />
-                    Promoted
-                    <ExternalLink className="ml-1 h-3 w-3" aria-hidden="true" />
-                  </Link>
+                  <>
+                    <Link
+                      href={`/admin/benefits/${benefitId}`}
+                      className="inline-flex items-center gap-1 rounded-md bg-green-50 px-3 py-1.5 text-xs font-medium text-green-700 hover:bg-green-100"
+                    >
+                      <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                      Promoted
+                      <ExternalLink className="ml-1 h-3 w-3" aria-hidden="true" />
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={() => onUnpromote(idx, benefitId!)}
+                      className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-3 py-1.5 text-xs font-medium text-[#92400e] hover:bg-amber-100"
+                    >
+                      <Undo2 className="h-3.5 w-3.5" aria-hidden="true" />
+                      Unpromote
+                    </button>
+                  </>
                 ) : (
                   <button
                     type="button"
@@ -579,17 +716,26 @@ function DraftBenefitsList({
                 )}
               </div>
             </div>
-            <p className="text-sm text-[#1a1b22]">{draft.benefit || "—"}</p>
-            {draft.conditions && (
+            <p className="text-sm font-medium text-[#1a1b22]">{draftTitle}</p>
+            {draft.summary && (
+              <p className="mt-1 text-xs text-[#454652]">{draft.summary}</p>
+            )}
+            {draft.who_applies && (
               <p className="mt-2 text-xs text-[#454652]">
+                <span className="font-semibold uppercase tracking-wide">Кто может получить: </span>
+                {draft.who_applies}
+              </p>
+            )}
+            {draft.conditions && (
+              <p className="mt-1.5 text-xs text-[#454652]">
                 <span className="font-semibold uppercase tracking-wide">Условия: </span>
                 {draft.conditions}
               </p>
             )}
-            {draft.documents && (
+            {draft.validity && (
               <p className="mt-1.5 text-xs text-[#454652]">
-                <span className="font-semibold uppercase tracking-wide">Документы: </span>
-                {draft.documents}
+                <span className="font-semibold uppercase tracking-wide">Срок действия: </span>
+                {draft.validity}
               </p>
             )}
           </div>

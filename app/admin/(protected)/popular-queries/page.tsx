@@ -4,29 +4,27 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Save, Trash2, X } from "lucide-react";
 import { adminApi, UnauthorizedError } from "@/lib/adminApi";
-import type { AdminTab } from "@/lib/adminTab";
-import { ImageUpload } from "@/components/admin/ImageUpload";
+import type { AdminPopularQuery } from "@/lib/adminPopularQuery";
 
-type EditableTab = Omit<AdminTab, "id"> & { id: number | null };
+type EditableQuery = Omit<AdminPopularQuery, "id"> & { id: number | null };
 
-const EMPTY: EditableTab = {
+const EMPTY: EditableQuery = {
   id: null,
-  slug: "",
-  name: "",
-  subtitle: "",
-  icon: "",
+  text: "",
   sort_order: 0,
   is_active: true,
 };
 
-// Actions column is fixed-width (not `auto`) so the column tracks line up
-// between the header and the data rows. See note in popular-queries/page.tsx.
-const COLS = "sm:grid-cols-[72px_150px_1fr_1fr_84px_70px_180px]";
+// The actions column is a fixed width (not `auto`) so the column tracks are
+// identical between the header row and data rows — otherwise content-derived
+// `auto` widths differ (header has just "ACTIONS", rows have buttons) and the
+// 1fr column expands differently in each, pushing all subsequent cells off.
+const COLS = "sm:grid-cols-[1fr_120px_80px_180px]";
 
-export default function TabsAdminPage() {
+export default function PopularQueriesAdminPage() {
   const router = useRouter();
-  const [tabs, setTabs] = useState<AdminTab[]>([]);
-  const [draft, setDraft] = useState<EditableTab | null>(null);
+  const [items, setItems] = useState<AdminPopularQuery[]>([]);
+  const [draft, setDraft] = useState<EditableQuery | null>(null);
 
   const safeApi = useCallback(
     async <T,>(fn: () => Promise<T>) => {
@@ -45,65 +43,67 @@ export default function TabsAdminPage() {
   );
 
   const load = useCallback(async () => {
-    const data = await safeApi(() => adminApi<AdminTab[]>("/admin/tabs"));
-    if (data) setTabs(data);
+    const data = await safeApi(() =>
+      adminApi<AdminPopularQuery[]>("/admin/popular-queries"),
+    );
+    if (data) setItems(data);
   }, [safeApi]);
 
   useEffect(() => {
     load();
   }, [load]);
 
-  async function saveTab(tab: EditableTab, index: number | null) {
-    if (!tab.slug.trim() || !tab.name.trim()) {
-      window.alert("Заполните slug и name");
+  async function saveRow(row: EditableQuery, index: number | null) {
+    if (!row.text.trim()) {
+      window.alert("Заполните текст запроса");
       return;
     }
     const body = JSON.stringify({
-      slug: tab.slug,
-      name: tab.name,
-      subtitle: tab.subtitle,
-      icon: tab.icon,
-      sort_order: tab.sort_order,
-      is_active: tab.is_active,
+      text: row.text,
+      sort_order: row.sort_order,
+      is_active: row.is_active,
     });
 
-    if (tab.id === null) {
+    if (row.id === null) {
       const created = await safeApi(() =>
-        adminApi<AdminTab>("/admin/tabs", {
+        adminApi<AdminPopularQuery>("/admin/popular-queries", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body,
         }),
       );
       if (created) {
-        setTabs((prev) => [...prev, created]);
+        setItems((prev) => [...prev, created]);
         setDraft(null);
       }
     } else {
       const updated = await safeApi(() =>
-        adminApi<AdminTab>(`/admin/tabs/${tab.id}`, {
+        adminApi<AdminPopularQuery>(`/admin/popular-queries/${row.id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body,
         }),
       );
       if (updated && index !== null) {
-        setTabs((prev) => prev.map((t, i) => (i === index ? updated : t)));
+        setItems((prev) => prev.map((q, i) => (i === index ? updated : q)));
       }
     }
   }
 
-  async function deleteTab(id: number) {
-    if (!window.confirm("Удалить категорию?")) return;
-    await safeApi(() => adminApi(`/admin/tabs/${id}`, { method: "DELETE" }));
-    setTabs((prev) => prev.filter((t) => t.id !== id));
+  async function deleteRow(id: number) {
+    if (!window.confirm("Удалить запрос?")) return;
+    await safeApi(() =>
+      adminApi(`/admin/popular-queries/${id}`, { method: "DELETE" }),
+    );
+    setItems((prev) => prev.filter((q) => q.id !== id));
   }
 
   return (
     <div className="px-4 py-6 sm:px-8">
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <p className="text-xs text-[#454652]">
-          Каждая категория — секция на публичном сайте. Льготы привязываются мультиселектом.
+          Подсказки «Часто ищут» в hero публичного сайта. Клик по чипу запускает
+          поиск по этому тексту.
         </p>
         {draft === null && (
           <button
@@ -113,7 +113,7 @@ export default function TabsAdminPage() {
             style={{ background: "linear-gradient(135deg, #24389c, #3f51b5)" }}
           >
             <Plus className="h-4 w-4" aria-hidden="true" />
-            Добавить категорию
+            Добавить запрос
           </button>
         )}
       </div>
@@ -122,41 +122,40 @@ export default function TabsAdminPage() {
         <div
           className={`hidden grid-cols-1 items-center bg-[#f4f2fc] px-4 py-2.5 text-[10px] uppercase tracking-[0.15em] text-[#454652] sm:grid sm:gap-2 ${COLS}`}
         >
-          <div>Иконка</div>
-          <div>Slug</div>
-          <div>Название</div>
-          <div>Подзаголовок</div>
+          <div>Текст</div>
           <div>Порядок</div>
           <div>Active</div>
           <div className="text-right">Actions</div>
         </div>
 
         {draft !== null && (
-          <TabRow
-            tab={draft}
+          <QueryRow
+            row={draft}
             onChange={setDraft}
-            onSave={() => saveTab(draft, null)}
+            onSave={() => saveRow(draft, null)}
             onCancel={() => setDraft(null)}
           />
         )}
 
-        {tabs.map((tab, index) => (
-          <TabRow
-            key={tab.id}
-            tab={tab}
+        {items.map((row, index) => (
+          <QueryRow
+            key={row.id}
+            row={row}
             onChange={(updated) =>
-              setTabs((prev) =>
-                prev.map((t, i) => (i === index ? { ...t, ...updated, id: t.id } : t)),
+              setItems((prev) =>
+                prev.map((q, i) =>
+                  i === index ? { ...q, ...updated, id: q.id } : q,
+                ),
               )
             }
-            onSave={() => saveTab(tabs[index], index)}
-            onDelete={() => deleteTab(tab.id)}
+            onSave={() => saveRow(items[index], index)}
+            onDelete={() => deleteRow(row.id)}
           />
         ))}
 
-        {tabs.length === 0 && draft === null && (
+        {items.length === 0 && draft === null && (
           <div className="px-4 py-12 text-center text-sm text-[#454652]">
-            Пока нет категорий.
+            Пока нет запросов.
           </div>
         )}
       </div>
@@ -164,15 +163,15 @@ export default function TabsAdminPage() {
   );
 }
 
-function TabRow({
-  tab,
+function QueryRow({
+  row,
   onChange,
   onSave,
   onDelete,
   onCancel,
 }: {
-  tab: EditableTab;
-  onChange: (next: EditableTab) => void;
+  row: EditableQuery;
+  onChange: (next: EditableQuery) => void;
   onSave: () => void;
   onDelete?: () => void;
   onCancel?: () => void;
@@ -181,46 +180,27 @@ function TabRow({
     <div
       className={`grid grid-cols-1 items-center gap-3 border-t border-[#f4f2fc] px-4 py-3 sm:gap-2 ${COLS}`}
     >
-      <div>
-        <ImageUpload
-          value={tab.icon}
-          onChange={(url) => onChange({ ...tab, icon: url })}
-          compact
-        />
-      </div>
       <input
         type="text"
-        placeholder="slug"
-        value={tab.slug}
-        onChange={(e) => onChange({ ...tab, slug: e.target.value })}
-        className="rounded bg-[#e9e7f0] px-3 py-2 text-sm focus:bg-[#e3e1ea] focus:outline-none"
-      />
-      <input
-        type="text"
-        placeholder="Название (на сайте)"
-        value={tab.name}
-        onChange={(e) => onChange({ ...tab, name: e.target.value })}
-        className="rounded bg-[#e9e7f0] px-3 py-2 text-sm focus:bg-[#e3e1ea] focus:outline-none"
-      />
-      <input
-        type="text"
-        placeholder="Подзаголовок (опц.)"
-        value={tab.subtitle}
-        onChange={(e) => onChange({ ...tab, subtitle: e.target.value })}
+        placeholder="Текст запроса (например: Санаторий)"
+        value={row.text}
+        onChange={(e) => onChange({ ...row, text: e.target.value })}
         className="rounded bg-[#e9e7f0] px-3 py-2 text-sm focus:bg-[#e3e1ea] focus:outline-none"
       />
       <input
         type="number"
         placeholder="Порядок"
-        value={tab.sort_order}
-        onChange={(e) => onChange({ ...tab, sort_order: Number(e.target.value) || 0 })}
+        value={row.sort_order}
+        onChange={(e) =>
+          onChange({ ...row, sort_order: Number(e.target.value) || 0 })
+        }
         className="rounded bg-[#e9e7f0] px-3 py-2 text-sm focus:bg-[#e3e1ea] focus:outline-none"
       />
       <label className="flex items-center gap-2 text-xs text-[#454652]">
         <input
           type="checkbox"
-          checked={tab.is_active}
-          onChange={(e) => onChange({ ...tab, is_active: e.target.checked })}
+          checked={row.is_active}
+          onChange={(e) => onChange({ ...row, is_active: e.target.checked })}
           className="h-4 w-4 accent-[#3f51b5]"
         />
         <span className="sm:hidden">Active</span>

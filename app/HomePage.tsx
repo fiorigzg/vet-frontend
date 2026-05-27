@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   Search,
   Phone,
@@ -8,28 +8,44 @@ import {
   Menu,
   ChevronDown,
   ChevronRight,
-  ClipboardList,
+  ArrowRight,
+  FileText,
   CheckCircle,
-  HelpCircle,
   Clock,
+  Check,
   X,
+  Heart,
+  GraduationCap,
+  Bus,
+  Home,
+  Scale,
+  BedDouble,
+  Briefcase,
+  Users,
+  Landmark,
+  Wallet,
+  HeartHandshake,
+  Award,
+  type LucideIcon,
 } from "lucide-react";
 import { fetchBenefits } from "@/lib/api";
-import type { Benefit, PublicTab } from "@/types/benefit";
+import { pluralRu } from "@/lib/plural";
+import type { Benefit, PopularQuery, PublicTab } from "@/types/benefit";
 import { BenefitCard } from "@/components/BenefitCard";
-import { BenefitModal } from "@/components/BenefitModal";
 import { BenefitsMap } from "@/components/BenefitsMap";
 import { LowVisionBar, LowVisionToggle } from "@/components/LowVisionBar";
 
-const SECTION_PREVIEW_LIMIT = 10;
+const SECTION_PREVIEW_LIMIT = 8;
+const PAGE_SIZE = 20;
 const NAV_ITEMS = [
   { label: "Главная", href: "#top" },
   { label: "Льготы", href: "#benefits" },
-  { label: "Частые вопросы", href: "#faq" },
-  { label: "Контакты", href: "#footer" },
+  { label: "Карта", href: "#map" },
+  { label: "Вопросы", href: "#faq" },
 ];
 const CONTACT_PHONE_HREF = "+79919426100";
 const CONTACT_PHONE_LABEL = "+7 (991) 942-61-00";
+
 
 const FAQ_ITEMS = [
   {
@@ -50,68 +66,253 @@ const FAQ_ITEMS = [
   },
 ];
 
+// ---------------------------------------------------------------------------
+//  Category icons — admin categories carry no icon, so map by slug/name with a
+//  sensible fallback. Drives the icons in the category grid and section heads.
+// ---------------------------------------------------------------------------
+const CATEGORY_ICON_BY_SLUG: Record<string, LucideIcon> = {
+  med: Heart,
+  zdorovie: Heart,
+  health: Heart,
+  edu: GraduationCap,
+  obrazovanie: GraduationCap,
+  trans: Bus,
+  transport: Bus,
+  home: Home,
+  zhilyo: Home,
+  zhilye: Home,
+  law: Scale,
+  yur: Scale,
+  legal: Scale,
+  rest: BedDouble,
+  sanatorii: BedDouble,
+  otdyh: BedDouble,
+  work: Briefcase,
+  trudoustroystvo: Briefcase,
+  rabota: Briefcase,
+  fam: Users,
+  family: Users,
+  semya: Users,
+  kultura: Landmark,
+  culture: Landmark,
+  finansy: Wallet,
+  money: Wallet,
+  soc: HeartHandshake,
+  "soc-podderzhka": HeartHandshake,
+  social: HeartHandshake,
+};
+const NAME_KEYWORD_ICON: Array<[RegExp, LucideIcon]> = [
+  [/здоров|медиц|клин/i, Heart],
+  [/образов|учеб|школ|вуз/i, GraduationCap],
+  [/транспорт|проезд|метро/i, Bus],
+  [/жил|ипотек|кварт/i, Home],
+  [/юрид|правов|закон/i, Scale],
+  [/отдых|санатор|туризм|культур|музе|театр/i, BedDouble],
+  [/работ|труд|занятост|карьер/i, Briefcase],
+  [/семь|дет|ребён|ребен/i, Users],
+  [/финанс|выплат|деньг|пособи/i, Wallet],
+];
+function iconForCategory(tab: PublicTab): LucideIcon {
+  const bySlug = CATEGORY_ICON_BY_SLUG[tab.slug.toLowerCase()];
+  if (bySlug) return bySlug;
+  for (const [re, icon] of NAME_KEYWORD_ICON) {
+    if (re.test(tab.name) || re.test(tab.slug)) return icon;
+  }
+  return Award;
+}
+
+// Category badge: an uploaded icon (set in the admin) when present, otherwise
+// the slug/name-mapped Lucide icon.
+function CategoryIcon({ tab }: { tab: PublicTab }) {
+  if (tab.icon) {
+    return (
+      <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-[10px] bg-[#E7F0FB]">
+        <img src={tab.icon} alt="" className="h-6 w-6 object-contain" />
+      </div>
+    );
+  }
+  const Icon = iconForCategory(tab);
+  return (
+    <div className="flex h-10 w-10 items-center justify-center rounded-[10px] bg-[#E7F0FB] text-[#0D4D8C]">
+      <Icon className="h-5 w-5" />
+    </div>
+  );
+}
+
 interface HomePageProps {
   initialBenefits: Benefit[];
   initialTabs: PublicTab[];
+  initialPopularQueries: PopularQuery[];
   initialError: string | null;
 }
 
 export function HomePage({
   initialBenefits,
   initialTabs,
+  initialPopularQueries,
   initialError,
 }: HomePageProps) {
   const [benefits] = useState<Benefit[]>(initialBenefits);
   const [tabs] = useState<PublicTab[]>(initialTabs);
-  const [selectedBenefit, setSelectedBenefit] = useState<Benefit | null>(null);
+  const [popularQueries] = useState<PopularQuery[]>(initialPopularQueries);
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<Benefit[]>([]);
+  const [searchTotal, setSearchTotal] = useState(0);
   const [activeTabSlug, setActiveTabSlug] = useState<string | null>(null);
-  const [activeSectionTitle, setActiveSectionTitle] = useState<string | null>(null);
-  const [openFaq, setOpenFaq] = useState<number | null>(null);
+  const [activeSectionTitle, setActiveSectionTitle] = useState<string | null>(
+    null,
+  );
+  const [openFaq, setOpenFaq] = useState<number | null>(0);
   const [isSearching, setIsSearching] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(initialError);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  // Desktop nav scroll-spy + sliding indicator. `activeNav` tracks which
+  // section is currently in view; `navIndicator` is the absolute-positioned
+  // underline that animates between items.
+  const navItemRefs = useRef<Record<string, HTMLAnchorElement | null>>({});
+  const [activeNav, setActiveNav] = useState<string>(NAV_ITEMS[0].href);
+  const [navIndicator, setNavIndicator] = useState<{ left: number; width: number }>({
+    left: 0,
+    width: 0,
+  });
 
   const hasActiveResultState =
     activeTabSlug !== null || Boolean(searchQuery.trim());
   const showFilteredResults = hasActiveResultState;
 
+  const counts = useMemo(() => {
+    const c: Record<string, number> = {};
+    for (const b of benefits)
+      for (const t of b.tabs) c[t.slug] = (c[t.slug] || 0) + 1;
+    return c;
+  }, [benefits]);
+
+  // Count distinct locations, not just benefits-with-coordinates. Many
+  // benefits can share one address (e.g. five measures at the same МФЦ).
+  const addressCount = useMemo(() => {
+    const seen = new Set<string>();
+    for (const b of benefits) {
+      if (b.lat != null && b.lng != null) {
+        seen.add(`${b.lat}|${b.lng}`);
+      }
+    }
+    return seen.size;
+  }, [benefits]);
+
+  // Reset + first-page load whenever the filter changes (search or tab).
   useEffect(() => {
     let cancelled = false;
 
-    async function loadSearchResults() {
+    async function loadFirstPage() {
       if (!showFilteredResults) {
         setSearchResults([]);
+        setSearchTotal(0);
         return;
       }
-
       try {
         setIsSearching(true);
         setLoadError(null);
-
         const response = await fetchBenefits({
           q: searchQuery.trim() || undefined,
-          tab: activeTabSlug ?? undefined,
+          tab:
+            activeTabSlug && activeTabSlug !== "__all__"
+              ? activeTabSlug
+              : undefined,
+          limit: PAGE_SIZE,
+          offset: 0,
         });
-
         if (cancelled) return;
         setSearchResults(response.items ?? []);
+        setSearchTotal(response.total ?? 0);
       } catch (error) {
         if (cancelled) return;
-        setLoadError(error instanceof Error ? error.message : "Не удалось выполнить поиск");
+        setLoadError(
+          error instanceof Error ? error.message : "Не удалось выполнить поиск",
+        );
       } finally {
         if (!cancelled) setIsSearching(false);
       }
     }
 
-    loadSearchResults();
-
+    loadFirstPage();
     return () => {
       cancelled = true;
     };
   }, [activeTabSlug, searchQuery, showFilteredResults]);
+
+  async function handleShowMore() {
+    if (isLoadingMore) return;
+    try {
+      setIsLoadingMore(true);
+      setLoadError(null);
+      const response = await fetchBenefits({
+        q: searchQuery.trim() || undefined,
+        tab:
+          activeTabSlug && activeTabSlug !== "__all__"
+            ? activeTabSlug
+            : undefined,
+        limit: PAGE_SIZE,
+        offset: searchResults.length,
+      });
+      // Append while de-duping by id — guards against races and double-clicks.
+      setSearchResults((prev) => {
+        const seen = new Set(prev.map((b) => b.id));
+        return [...prev, ...(response.items ?? []).filter((b) => !seen.has(b.id))];
+      });
+      setSearchTotal(response.total ?? searchTotal);
+    } catch (error) {
+      setLoadError(
+        error instanceof Error ? error.message : "Не удалось загрузить",
+      );
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }
+
+  // Scroll-spy: pick the deepest section whose top has crossed a marker just
+  // below the sticky header. That section's nav item becomes active.
+  useEffect(() => {
+    const sections = NAV_ITEMS.map((it) => {
+      const el = document.getElementById(it.href.slice(1));
+      return el ? { href: it.href, el } : null;
+    }).filter((x): x is { href: string; el: HTMLElement } => x !== null);
+
+    function update() {
+      const header = document.querySelector("header");
+      const headerH = header instanceof HTMLElement ? header.offsetHeight : 0;
+      const marker = headerH + 40;
+      let current = NAV_ITEMS[0].href;
+      for (const s of sections) {
+        if (s.el.getBoundingClientRect().top - marker <= 0) current = s.href;
+      }
+      setActiveNav(current);
+    }
+    update();
+    window.addEventListener("scroll", update, { passive: true });
+    window.addEventListener("resize", update);
+    return () => {
+      window.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+    };
+  }, []);
+
+  // Position the sliding underline under the currently active nav item.
+  useEffect(() => {
+    function compute() {
+      const el = navItemRefs.current[activeNav];
+      if (!el) {
+        setNavIndicator({ left: 0, width: 0 });
+        return;
+      }
+      setNavIndicator({ left: el.offsetLeft, width: el.offsetWidth });
+    }
+    compute();
+    window.addEventListener("resize", compute);
+    return () => window.removeEventListener("resize", compute);
+  }, [activeNav]);
 
   function benefitsForTab(slug: string) {
     return benefits.filter((b) => b.tabs.some((t) => t.slug === slug));
@@ -122,20 +323,14 @@ export function HomePage({
       window.scrollTo({ top: 0, behavior: "smooth" });
       return;
     }
-
     const header = document.querySelector("header");
-    const headerHeight = header instanceof HTMLElement ? header.offsetHeight : 0;
+    const headerHeight =
+      header instanceof HTMLElement ? header.offsetHeight : 0;
     const element = document.querySelector(selector);
     if (!element) return;
-
-    const extraOffset = selector === "#faq" ? 0 : 16;
     const targetTop =
-      element.getBoundingClientRect().top + window.scrollY - headerHeight - extraOffset;
-
-    window.scrollTo({
-      top: Math.max(targetTop, 0),
-      behavior: "smooth",
-    });
+      element.getBoundingClientRect().top + window.scrollY - headerHeight - 12;
+    window.scrollTo({ top: Math.max(targetTop, 0), behavior: "smooth" });
   }
 
   function handleSearchSubmit(event?: FormEvent<HTMLFormElement>) {
@@ -143,6 +338,14 @@ export function HomePage({
     setActiveTabSlug(null);
     setActiveSectionTitle(null);
     setSearchQuery(searchInput.trim());
+    scrollToSection("#benefits");
+  }
+
+  function handleChipClick(text: string) {
+    setSearchInput(text);
+    setActiveTabSlug(null);
+    setActiveSectionTitle(null);
+    setSearchQuery(text);
     scrollToSection("#benefits");
   }
 
@@ -159,6 +362,14 @@ export function HomePage({
     scrollToSection("#benefits");
   }
 
+  function showAllBenefits() {
+    setSearchInput("");
+    setSearchQuery("");
+    setActiveTabSlug("__all__");
+    setActiveSectionTitle(null);
+    scrollToSection("#benefits");
+  }
+
   function resetResultState() {
     setActiveTabSlug(null);
     setActiveSectionTitle(null);
@@ -166,141 +377,201 @@ export function HomePage({
     setSearchQuery("");
   }
 
+  // "__all__" is a sentinel activeTabSlug meaning "show everything" — it keeps
+  // the filtered view active but is mapped to no tab filter in the fetch above.
+
   return (
-    <div className="min-h-screen bg-[#F7F8FA] font-['Inter',sans-serif]" id="top">
+    <div
+      className="min-h-screen bg-[#F2F5FA] text-[#0F1A2E] font-['Onest','Inter',sans-serif] [font-feature-settings:'ss01']"
+      id="top"
+    >
       <a
         href="#main"
-        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[60] focus:rounded-lg focus:bg-white focus:px-4 focus:py-2 focus:text-[15px] focus:text-[#2B6CB0] focus:shadow-lg focus:outline-none focus:ring-2 focus:ring-[#2B6CB0]"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[60] focus:rounded-lg focus:bg-white focus:px-4 focus:py-2 focus:text-[15px] focus:text-[#0D4D8C] focus:shadow-lg focus:outline-none focus:ring-2 focus:ring-[#0D4D8C]"
       >
         Перейти к содержанию
       </a>
 
       <LowVisionBar />
 
-      <header className="sticky top-0 z-40 border-b border-[#E2E8F0] bg-white">
-        <div className="relative mx-auto flex max-w-[1280px] items-center justify-between gap-3 px-4 py-3 md:px-8 md:py-4">
+      {/* ===================== Header ===================== */}
+      <header className="sticky top-0 z-40 border-b border-[#E1E6EE] bg-white">
+        <div className="relative mx-auto flex max-w-[1240px] items-center gap-4 px-4 py-3 md:px-8 md:py-3.5">
           <a
             href="#top"
-            onClick={(event) => {
-              event.preventDefault();
+            onClick={(e) => {
+              e.preventDefault();
               scrollToSection("#top");
             }}
-            className="flex min-w-0 items-center gap-2 rounded-lg transition-opacity hover:opacity-85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2B6CB0] focus-visible:ring-offset-2 md:gap-3"
+            className="flex min-w-0 items-center gap-3 rounded-lg transition-opacity hover:opacity-85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0D4D8C] focus-visible:ring-offset-2"
             aria-label="Главная"
           >
-            <div className="p-0">
-              <img src="/logo.png" alt="Логотип" className="h-11 w-14 object-contain md:h-14 md:w-[4.75rem]" />
-            </div>
-            <div className="min-w-0">
-              <span className="block truncate text-[16px] leading-tight text-[#1A1D26] md:text-[18px]">Льгота.Москва</span>
-              <span className="block max-w-[180px] text-[11px] leading-tight text-[#718096] sm:max-w-none sm:text-[12px]">Льготы для ветеранов СВО</span>
+            <img
+              src="/logo.png"
+              alt="Логотип"
+              className="h-10 w-auto flex-shrink-0 object-contain md:h-11"
+            />
+            <div className="min-w-0 leading-tight">
+              <span className="block truncate text-[16px] font-semibold tracking-[-0.01em] text-[#0F1A2E]">
+                Льгота.Москва
+              </span>
+              <span className="block max-w-[180px] truncate text-[11.5px] text-[#5B6577] sm:max-w-none">
+                Льготы для ветеранов СВО
+              </span>
             </div>
           </a>
 
-          <nav className="absolute left-1/2 top-1/2 hidden -translate-x-1/2 -translate-y-1/2 items-center gap-8 whitespace-nowrap lg:flex">
-            {NAV_ITEMS.map((item) => (
-              <a
-                key={item.label}
-                href={item.href}
-                onClick={(event) => {
-                  event.preventDefault();
-                  scrollToSection(item.href);
-                }}
-                className={`text-[15px] leading-none transition-colors hover:text-[#2B6CB0] ${
-                  item.label === "Главная" ? "text-[#2B6CB0]" : "text-[#4A5568]"
-                }`}
-              >
-                {item.label}
-              </a>
-            ))}
+          <nav className="relative ml-8 hidden items-center gap-7 whitespace-nowrap lg:flex">
+            {NAV_ITEMS.map((item) => {
+              const isActive = activeNav === item.href;
+              return (
+                <a
+                  key={item.label}
+                  href={item.href}
+                  ref={(el) => {
+                    navItemRefs.current[item.href] = el;
+                  }}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    scrollToSection(item.href);
+                  }}
+                  className={`py-1.5 text-[14.5px] transition-colors hover:text-[#0D4D8C] ${
+                    isActive
+                      ? "font-semibold text-[#0F1A2E]"
+                      : "font-medium text-[#5B6577]"
+                  }`}
+                >
+                  {item.label}
+                </a>
+              );
+            })}
+            {navIndicator.width > 0 && (
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute bottom-0 h-[2px] bg-[#0D4D8C] transition-[left,width] duration-300 ease-out"
+                style={{ left: navIndicator.left, width: navIndicator.width }}
+              />
+            )}
           </nav>
 
-          <div className="ml-auto flex items-center gap-2 md:gap-3">
+          <div className="ml-auto flex items-center gap-2.5">
             <LowVisionToggle />
-
-            <div className="hidden items-center gap-2 rounded-lg bg-[#EBF4FF] px-3 py-2 text-[14px] text-[#2B6CB0] xl:flex">
+            <a
+              href={`tel:${CONTACT_PHONE_HREF}`}
+              className="hidden items-center gap-2 rounded-lg bg-[#E7F0FB] px-3 py-2 text-[13.5px] font-semibold text-[#0D4D8C] transition-colors hover:bg-[#D7E6F8] xl:flex"
+            >
               <Phone className="h-4 w-4" aria-hidden="true" />
               {CONTACT_PHONE_LABEL}
-            </div>
-
+            </a>
             <button
               type="button"
-              className="flex min-h-10 min-w-10 items-center justify-center rounded-lg border border-[#E2E8F0] text-[#4A5568] transition-colors hover:border-[#2B6CB0] hover:text-[#2B6CB0] lg:hidden"
+              className="flex min-h-10 min-w-10 items-center justify-center rounded-lg border border-[#E1E6EE] text-[#1F2A3E] transition-colors hover:border-[#0D4D8C] hover:text-[#0D4D8C] lg:hidden"
               aria-label={isMobileMenuOpen ? "Закрыть меню" : "Открыть меню"}
               aria-expanded={isMobileMenuOpen}
-              onClick={() => setIsMobileMenuOpen((isOpen) => !isOpen)}
+              onClick={() => setIsMobileMenuOpen((o) => !o)}
             >
-              {isMobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+              {isMobileMenuOpen ? (
+                <X className="h-5 w-5" />
+              ) : (
+                <Menu className="h-5 w-5" />
+              )}
             </button>
           </div>
         </div>
 
         {isMobileMenuOpen && (
-          <nav className="border-t border-[#E2E8F0] bg-white px-6 pb-5 pt-6 lg:hidden">
-            <div className="mx-auto flex max-w-[1280px] flex-col">
+          <nav className="border-t border-[#E1E6EE] bg-white px-6 pb-5 pt-4 lg:hidden">
+            <div className="mx-auto flex max-w-[1240px] flex-col">
               {NAV_ITEMS.map((item) => (
                 <a
                   key={item.label}
                   href={item.href}
-                  onClick={(event) => {
-                    event.preventDefault();
+                  onClick={(e) => {
+                    e.preventDefault();
                     setIsMobileMenuOpen(false);
                     scrollToSection(item.href);
                   }}
-                  className="py-4 text-[15px] leading-none text-[#4A5568] transition-colors hover:text-[#2B6CB0]"
+                  className="border-b border-[#E1E6EE] py-3.5 text-[16px] font-medium text-[#1F2A3E] transition-colors hover:text-[#0D4D8C]"
                 >
                   {item.label}
                 </a>
               ))}
-              <div className="mt-5 border-t border-[#E2E8F0] pt-5">
-                <a
-                  href={`tel:${CONTACT_PHONE_HREF}`}
-                  className="inline-flex items-center gap-2 rounded-lg bg-[#EBF4FF] px-3 py-2 text-[14px] text-[#2B6CB0] transition-colors hover:bg-[#DBEAFE]"
-                >
-                  <Phone className="h-4 w-4 flex-shrink-0" />
-                  {CONTACT_PHONE_LABEL}
-                </a>
-              </div>
+              <a
+                href={`tel:${CONTACT_PHONE_HREF}`}
+                className="mt-4 inline-flex items-center gap-2 rounded-lg bg-[#E7F0FB] px-3 py-2.5 text-[15px] font-semibold text-[#0D4D8C]"
+              >
+                <Phone className="h-4 w-4 flex-shrink-0" />
+                {CONTACT_PHONE_LABEL}
+              </a>
             </div>
           </nav>
         )}
       </header>
 
       <main id="main" tabIndex={-1} className="outline-none">
-        <section className="bg-gradient-to-b from-[#EBF4FF] to-[#F7F8FA] pb-3 pt-12 md:pb-6 md:pt-16">
-          <div className="mx-auto max-w-[1280px] px-4 text-center md:px-8">
-            <h1 className="mx-auto mb-3 max-w-[920px] text-[28px] leading-tight text-[#1A1D26] md:text-[32px]">
-              <span className="md:hidden">Льготы для ветеранов СВО</span>
-              <span className="hidden md:inline">Льготы и меры поддержки для ветеранов СВО</span>
-            </h1>
-            <p className="mx-auto mb-7 max-w-[600px] text-[15px] leading-relaxed text-[#718096] md:mb-8 md:text-[16px]">
-              <span className="md:hidden">Найдите доступные меры поддержки в Москве.</span>
-              <span className="hidden md:inline">Найдите доступные льготы, скидки и услуги в Москве. Все меры поддержки в одном месте.</span>
-            </p>
-
-            <form
-              className="mx-auto mb-8 max-w-[720px]"
-              onSubmit={handleSearchSubmit}
-              role="search"
-              aria-label="Поиск мер поддержки"
+        {/* ===================== Hero ===================== */}
+        <section className="relative overflow-hidden px-4 pb-12 pt-14 md:px-8 md:pb-12 md:pt-16">
+          <div className="relative mx-auto max-w-[1240px]">
+            {/* Decorative logo watermark — anchored to the right edge of the
+                content block (not the screen edge) so it sits beside the copy. */}
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute right-0 top-1/2 z-0 hidden h-[440px] w-[440px] -translate-y-1/2 opacity-[0.06] md:block"
             >
-              <div className="flex h-[56px] overflow-hidden rounded-[14px] border border-[#E2E8F0] bg-white shadow-[0_10px_24px_rgba(26,32,44,0.12)] md:h-[64px]">
-                <div className="flex min-w-0 flex-1 items-center px-4 sm:px-5">
-                  <Search aria-hidden="true" className="mr-3 h-5 w-5 flex-shrink-0 text-[#A0AEC0] md:h-6 md:w-6" />
+              <img
+                src="/logo.png"
+                alt=""
+                className="h-full w-full object-contain"
+              />
+            </div>
+            <div className="relative z-10">
+              <div className="inline-flex items-center gap-2 rounded-full border border-[#E1E6EE] bg-white py-1.5 pl-2 pr-3 text-[12.5px] font-medium text-[#1F2A3E]">
+                <span className="inline-flex items-center gap-1.5 font-semibold text-[#0D4D8C]">
+                  <span className="h-1.5 w-1.5 rounded-full bg-[#0D4D8C]" />
+                  Обновлено сегодня
+                </span>
+                <span className="hidden h-3 w-px bg-[#E1E6EE] sm:block" />
+                <span className="hidden text-[#5B6577] sm:inline">
+                  {benefits.length}+ мер из официальных источников
+                </span>
+              </div>
+
+              <h1 className="mt-4 max-w-[880px] text-[34px] font-semibold leading-[1.07] tracking-[-0.025em] text-[#0F1A2E] md:text-[52px]">
+                Меры поддержки для ветеранов&nbsp;СВО{" "}
+                <span className="text-[#0D4D8C]">в одном&nbsp;месте</span>
+              </h1>
+
+              <p className="mt-4 max-w-[660px] text-[16px] leading-relaxed text-[#5B6577] md:text-[17.5px]">
+                Найдите доступные льготы, скидки и услуги в Москве. Проверенные
+                меры из официальных источников — медицина, образование,
+                транспорт, жильё.
+              </p>
+
+              <form
+                className="mt-7 flex max-w-[760px] items-center gap-2 rounded-2xl border border-[#E1E6EE] bg-white p-2 shadow-[0_12px_32px_-16px_rgba(13,77,140,0.25)]"
+                onSubmit={handleSearchSubmit}
+                role="search"
+                aria-label="Поиск мер поддержки"
+              >
+                <div className="flex min-w-0 flex-1 items-center gap-2.5 px-3.5 py-2.5">
+                  <Search
+                    aria-hidden="true"
+                    className="h-5 w-5 flex-shrink-0 text-[#5B6577]"
+                  />
                   <input
                     type="text"
                     aria-label="Поиск льгот и услуг"
                     placeholder="Поиск льгот и услуг"
-                    className="w-full min-w-0 bg-transparent text-[15px] text-[#1A1D26] outline-none placeholder:text-[#A0AEC0] md:text-[16px]"
+                    className="w-full min-w-0 bg-transparent text-[16px] text-[#0F1A2E] outline-none placeholder:text-[#8893A6] md:text-[16.5px]"
                     value={searchInput}
-                    onChange={(event) => setSearchInput(event.target.value)}
+                    onChange={(e) => setSearchInput(e.target.value)}
                   />
                   {searchInput && (
                     <button
                       type="button"
                       aria-label="Очистить поиск"
                       onClick={clearSearchText}
-                      className="ml-2 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-[#718096] transition-colors hover:bg-[#EDF2F7] hover:text-[#1A1D26]"
+                      className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-[#F2F5FA] text-[#5B6577] transition-colors hover:bg-[#E7F0FB] hover:text-[#0D4D8C]"
                     >
                       <X className="h-4 w-4" />
                     </button>
@@ -308,190 +579,336 @@ export function HomePage({
                 </div>
                 <button
                   type="submit"
-                  className="flex min-w-[108px] items-center justify-center bg-[#2B6CB0] px-5 text-[15px] text-white transition-colors hover:bg-[#2C5282] sm:min-w-[140px] sm:px-8"
+                  className="inline-flex flex-shrink-0 items-center gap-2 rounded-xl bg-[#0D4D8C] px-5 py-3 text-[15px] font-semibold text-white transition-colors hover:bg-[#073A6E] sm:px-6"
                 >
-                  Найти
+                  Найти <ArrowRight className="h-4 w-4" />
                 </button>
-              </div>
-            </form>
+              </form>
 
-            {tabs.length > 0 && (
-              <div className="category-tags -mx-4 flex gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:flex-wrap sm:justify-center sm:overflow-visible sm:px-0 md:gap-3">
-                {tabs.map((tab) => {
-                  const isActive = activeTabSlug === tab.slug;
-                  return (
+              {popularQueries.length > 0 && (
+                <div className="mt-5 flex flex-wrap items-center gap-2">
+                  <span className="mr-1 text-[13px] text-[#5B6577]">
+                    Часто ищут:
+                  </span>
+                  {popularQueries.map((q) => (
                     <button
-                      key={tab.id}
+                      key={q.id}
                       type="button"
-                      onClick={() => (isActive ? resetResultState() : openTab(tab))}
-                      className={`inline-flex flex-none items-center gap-2 rounded-full border px-4 py-2 text-[13px] transition-colors ${
-                        isActive
-                          ? "border-[#2B6CB0] bg-[#2B6CB0] text-white"
-                          : "border-[#D7E3F3] bg-white/80 text-[#4A5568] hover:border-[#2B6CB0] hover:bg-[#EBF4FF] hover:text-[#2B6CB0]"
-                      }`}
+                      onClick={() => handleChipClick(q.text)}
+                      className="rounded-full border border-[#E1E6EE] bg-white px-3.5 py-1.5 text-[13.5px] font-medium text-[#1F2A3E] transition-colors hover:border-[#0D4D8C] hover:text-[#0D4D8C]"
                     >
-                      {tab.name}
+                      {q.text}
                     </button>
-                  );
-                })}
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="relative mx-auto max-w-[1240px]">
+            {benefits.length > 0 && (
+              <div className="mt-10 grid grid-cols-1 divide-y divide-[#E1E6EE] overflow-hidden rounded-2xl border border-[#E1E6EE] bg-white sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+                {[
+                  { n: `${benefits.length}+`, l: "проверенных мер" },
+                  {
+                    n: `${tabs.length || "—"}`,
+                    l: tabs.length
+                      ? pluralRu(tabs.length, ["категория", "категории", "категорий"])
+                      : "категорий",
+                  },
+                  {
+                    n: `${addressCount || "—"}`,
+                    l: addressCount
+                      ? `${pluralRu(addressCount, ["адрес", "адреса", "адресов"])} на карте`
+                      : "адресов на карте",
+                  },
+                ].map((s) => (
+                  <div key={s.l} className="px-6 py-5">
+                    <div className="text-[28px] font-semibold tracking-[-0.02em] text-[#0D4D8C] md:text-[30px]">
+                      {s.n}
+                    </div>
+                    <div className="mt-1 text-[13.5px] text-[#5B6577]">
+                      {s.l}
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
         </section>
 
-        <section className="mx-auto hidden max-w-[1280px] px-4 pb-10 pt-4 md:block md:px-8 md:pb-14 md:pt-6">
-          <h2 className="mb-3 text-center text-[22px] text-[#1A1D26]">Как это работает</h2>
-          <p className="mx-auto mb-10 max-w-[500px] text-center text-[15px] text-[#718096]">
-            Три простых шага для получения мер поддержки
-          </p>
-          <div className="grid grid-cols-1 gap-5 md:grid-cols-3 md:gap-8">
-            {[
-              { icon: Search, title: "Найдите льготу", desc: "Используйте поиск или фильтры, чтобы найти подходящие меры поддержки." },
-              { icon: ClipboardList, title: "Узнайте условия", desc: "Прочитайте подробную информацию об условиях и необходимых документах." },
-              { icon: CheckCircle, title: "Получите поддержку", desc: "Обратитесь по указанному адресу или телефону с необходимыми документами." },
-            ].map((step, index) => (
-              <div key={index} className="rounded-xl border border-[#E2E8F0] bg-white p-6 text-center md:p-8">
-                <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-[#EBF4FF]">
-                  <step.icon className="h-6 w-6 text-[#2B6CB0]" />
+        {/* ===================== Category grid ===================== */}
+        {tabs.length > 0 && (
+          <section className="px-4 pb-4 pt-2 md:px-8 md:pb-14">
+            <div className="mx-auto max-w-[1240px]">
+              <div className="mb-5 flex items-end justify-between gap-4">
+                <div>
+                  <div className="text-[12.5px] font-semibold uppercase tracking-[0.08em] text-[#0D4D8C]">
+                    Категории
+                  </div>
+                  <h2 className="mt-1.5 text-[26px] font-semibold leading-tight tracking-[-0.02em] text-[#0F1A2E] md:text-[28px]">
+                    Выберите направление
+                  </h2>
                 </div>
-                <div className="mb-2 text-[13px] text-[#2B6CB0]">Шаг {index + 1}</div>
-                <h3 className="mb-2 text-[16px] text-[#1A1D26]">{step.title}</h3>
-                <p className="text-[14px] leading-relaxed text-[#718096]">{step.desc}</p>
+                <button
+                  type="button"
+                  onClick={showAllBenefits}
+                  className="inline-flex flex-shrink-0 items-center gap-1 text-[14px] font-semibold text-[#0D4D8C] hover:underline"
+                >
+                  Все {benefits.length} льгот{" "}
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </button>
               </div>
-            ))}
-          </div>
-        </section>
 
-        {hasActiveResultState && (
-          <div className="mx-auto max-w-[1280px] px-4 pb-3 md:px-8 md:py-4">
-            <button
-              onClick={resetResultState}
-              className="flex w-fit items-center justify-center gap-1 rounded-lg border border-[#D7DEE8] bg-[#EEF2F7] px-3 py-1.5 text-[13px] text-[#4A5568] shadow-sm transition-colors hover:border-[#FEB2B2] hover:bg-[#FFF1F1] hover:text-[#C53030]"
-            >
-              <X className="h-3.5 w-3.5" />
-              Сбросить
-            </button>
-          </div>
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                {tabs.map((tab) => {
+                  const active = activeTabSlug === tab.slug;
+                  return (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() =>
+                        active ? resetResultState() : openTab(tab)
+                      }
+                      className={`relative flex flex-col gap-2.5 rounded-xl border p-5 text-left transition-colors ${
+                        active
+                          ? "border-[#0D4D8C] bg-[#F2F7FD]"
+                          : "border-[#E1E6EE] bg-white hover:border-[#CDD6E3]"
+                      }`}
+                    >
+                      <CategoryIcon tab={tab} />
+                      <div className="mt-0.5 text-[15.5px] font-semibold text-[#0F1A2E]">
+                        {tab.name}
+                      </div>
+                      <div className="-mt-1 text-[13px] text-[#5B6577]">
+                        {counts[tab.slug] || 0}&nbsp;мер
+                      </div>
+                      {active && (
+                        <div className="absolute right-3.5 top-3.5 flex h-5 w-5 items-center justify-center rounded-full bg-[#0D4D8C] text-white">
+                          <Check className="h-3 w-3" />
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* ===================== How it works (desktop+tablet only) ===================== */}
+        {!showFilteredResults && (
+          <section className="hidden px-4 pb-16 pt-2 md:block md:px-8">
+            <div className="mx-auto max-w-[1240px]">
+              <div className="grid grid-cols-1 overflow-hidden rounded-2xl border border-[#E1E6EE] bg-white md:grid-cols-[260px_1fr]">
+                <div className="border-b border-[#E1E6EE] bg-[#F2F7FD] p-7 md:border-b-0 md:border-r">
+                  <div className="text-[12.5px] font-semibold uppercase tracking-[0.08em] text-[#0D4D8C]">
+                    Как это работает
+                  </div>
+                  <div className="mt-2 text-[22px] font-semibold leading-tight tracking-[-0.015em] text-[#0F1A2E]">
+                    Три шага до получения поддержки
+                  </div>
+                  <p className="mt-3.5 text-[13.5px] leading-relaxed text-[#5B6577]">
+                    Один портал вместо десятков сайтов министерств и ведомств.
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3">
+                  {[
+                    {
+                      i: Search,
+                      t: "Найдите льготу",
+                      d: "Поиск, фильтр по категории и району — за секунды.",
+                    },
+                    {
+                      i: FileText,
+                      t: "Изучите условия",
+                      d: "Полные требования, документы и сроки рассмотрения.",
+                    },
+                    {
+                      i: CheckCircle,
+                      t: "Получите поддержку",
+                      d: "Адрес, телефон и ссылка на официальный портал.",
+                    },
+                  ].map((s, i) => (
+                    <div
+                      key={s.t}
+                      className={`p-7 ${i < 2 ? "border-b border-[#E1E6EE] sm:border-b-0 sm:border-r" : ""}`}
+                    >
+                      <div className="text-[13px] font-semibold text-[#0D4D8C]">
+                        Шаг {i + 1}
+                      </div>
+                      <div className="mt-3 flex h-9 w-9 items-center justify-center rounded-[10px] bg-[#E7F0FB] text-[#0D4D8C]">
+                        <s.i className="h-[18px] w-[18px]" />
+                      </div>
+                      <div className="mt-3.5 text-[16px] font-semibold text-[#0F1A2E]">
+                        {s.t}
+                      </div>
+                      <p className="mt-1.5 text-[13.5px] leading-relaxed text-[#5B6577]">
+                        {s.d}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </section>
         )}
 
         {loadError && (
-          <section className="mx-auto max-w-[1280px] px-4 pb-6 md:px-8">
+          <section className="mx-auto max-w-[1240px] px-4 pb-6 md:px-8">
             <div className="rounded-xl border border-[#FEB2B2] bg-[#FFF5F5] px-5 py-4 text-[#C53030]">
               {loadError}
             </div>
           </section>
         )}
 
-        {showFilteredResults && isSearching ? (
-          <section className="mx-auto max-w-[1280px] px-4 pb-10 md:px-8 md:pb-12">
-            {activeSectionTitle && (
-              <p className="mb-2 text-[14px] text-[#2B6CB0]">{activeSectionTitle}</p>
-            )}
-            <div className="rounded-xl border border-[#E2E8F0] bg-white px-6 py-10 text-center text-[#718096]">
-              Загрузка данных...
-            </div>
-          </section>
-        ) : showFilteredResults ? (
-          <section id="benefits" className="mx-auto max-w-[1280px] px-4 pb-10 md:px-8 md:pb-12">
-            {activeSectionTitle && (
-              <p className="mb-2 text-[14px] text-[#2B6CB0]">{activeSectionTitle}</p>
-            )}
-            <h2 className={`mb-6 text-[20px] text-[#1A1D26] ${searchResults.length === 0 ? "pt-6 md:pt-0" : ""}`}>
-              {searchResults.length > 0 ? `Найдено: ${searchResults.length}` : "Ничего не найдено"}
-            </h2>
-            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
-              {searchResults.map((benefit) => (
-                <BenefitCard key={benefit.id} benefit={benefit} onClick={setSelectedBenefit} />
-              ))}
-            </div>
-          </section>
-        ) : tabs.length === 0 ? (
-          <section id="benefits" className="mx-auto max-w-[1280px] px-4 pb-10 md:px-8 md:pb-12">
-            <h2 className="mb-6 text-[20px] text-[#1A1D26]">Все льготы</h2>
-            {benefits.length > 0 ? (
-              <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
-                {benefits.map((benefit) => (
-                  <BenefitCard key={benefit.id} benefit={benefit} onClick={setSelectedBenefit} />
-                ))}
-              </div>
-            ) : (
-              <div className="rounded-xl border border-[#E2E8F0] bg-white px-6 py-8 text-center text-[14px] text-[#718096]">
-                Пока нет опубликованных льгот.
-              </div>
-            )}
-          </section>
-        ) : (
-          <>
-            {tabs.map((tab, idx) => {
-              const tabBenefits = benefitsForTab(tab.slug).slice(0, SECTION_PREVIEW_LIMIT);
-              const id = idx === 0 ? "benefits" : `tab-${tab.slug}`;
+        {/* ===================== Catalog (filtered or grouped) ===================== */}
+        <div id="benefits">
+          {showFilteredResults ? (
+            <FilteredGrid
+              title={
+                activeSectionTitle
+                  ? activeSectionTitle
+                  : searchQuery
+                    ? `Результаты по «${searchQuery}»`
+                    : "Все льготы"
+              }
+              subtitle={
+                activeSectionTitle ? "Категория" : searchQuery ? "Поиск" : null
+              }
+              items={searchResults}
+              total={searchTotal}
+              loading={isSearching}
+              loadingMore={isLoadingMore}
+              onShowMore={handleShowMore}
+              onReset={resetResultState}
+            />
+          ) : tabs.length === 0 ? (
+            <SectionRow title="Все льготы">
+              {benefits.length > 0 ? (
+                <CardGrid>
+                  {benefits.map((b) => (
+                    <BenefitCard key={b.id} benefit={b} />
+                  ))}
+                </CardGrid>
+              ) : (
+                <EmptyBox>Пока нет опубликованных льгот.</EmptyBox>
+              )}
+            </SectionRow>
+          ) : (
+            <>
+              {tabs.map((tab, idx) => {
+              const tabBenefits = benefitsForTab(tab.slug);
+              if (tabBenefits.length === 0) return null;
               return (
-                <Section
+                <SectionRow
                   key={tab.id}
-                  id={id}
-                  title={tab.name}
-                  subtitle={tab.subtitle}
                   bg={idx % 2 === 1}
+                  heading={
+                    <div className="flex items-center gap-3">
+                      <CategoryIcon tab={tab} />
+                      <div>
+                        <h2 className="text-[24px] font-semibold tracking-[-0.02em] text-[#0F1A2E] md:text-[26px]">
+                          {tab.name}
+                        </h2>
+                        <div className="text-[13.5px] text-[#5B6577]">
+                          {tabBenefits.length} мер поддержки
+                        </div>
+                      </div>
+                    </div>
+                  }
                   onViewAll={() => openTab(tab)}
+                  viewAllLabel="Все в разделе"
                 >
-                  <BenefitSlider benefits={tabBenefits} onSelect={setSelectedBenefit} />
-                </Section>
+                  <BenefitRail items={tabBenefits.slice(0, SECTION_PREVIEW_LIMIT)} />
+                </SectionRow>
               );
-            })}
-          </>
-        )}
+              })}
+            </>
+          )}
+        </div>
 
+        {/* ===================== Map ===================== */}
         <BenefitsMap />
 
-        <section id="faq" className="border-t border-[#E2E8F0] bg-[#FAFBFC]">
-          <div className="mx-auto max-w-[800px] px-4 py-10 md:px-8 md:py-14">
-            <h2 className="mb-3 text-center text-[22px] text-[#1A1D26]">Часто задаваемые вопросы</h2>
-            <p className="mb-8 text-center text-[15px] text-[#718096]">Ответы на популярные вопросы о мерах поддержки</p>
-            <div className="space-y-3">
-              {FAQ_ITEMS.map((item, index) => (
-                <div key={index} className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
-                  <button
-                    className="flex w-full items-start justify-between gap-3 px-4 py-4 text-left md:px-6"
-                    onClick={() => setOpenFaq(openFaq === index ? null : index)}
+        {/* ===================== FAQ ===================== */}
+        <section id="faq" className="border-t border-[#E1E6EE] bg-[#FAFBFD]">
+          <div className="mx-auto max-w-[900px] px-4 py-14 md:px-8">
+            <div className="mb-9 text-center">
+              <div className="text-[12.5px] font-semibold uppercase tracking-[0.08em] text-[#0D4D8C]">
+                Помощь
+              </div>
+              <h2 className="mt-2 text-[28px] font-semibold tracking-[-0.02em] text-[#0F1A2E] md:text-[32px]">
+                Частые вопросы
+              </h2>
+              <p className="mt-2 text-[15px] text-[#5B6577] md:text-[16px]">
+                Ответы на популярные вопросы о мерах поддержки
+              </p>
+            </div>
+            <div className="flex flex-col gap-2.5">
+              {FAQ_ITEMS.map((item, index) => {
+                const isOpen = openFaq === index;
+                return (
+                  <div
+                    key={index}
+                    className={`overflow-hidden rounded-xl border bg-white transition-colors ${isOpen ? "border-[#CDD6E3]" : "border-[#E1E6EE]"}`}
                   >
-                    <span className="flex min-w-0 items-start gap-3 text-[15px] text-[#1A1D26]">
-                      <HelpCircle className="h-5 w-5 flex-shrink-0 text-[#2B6CB0]" />
-                      {item.q}
-                    </span>
-                    <ChevronDown className={`mt-0.5 h-4 w-4 flex-shrink-0 text-[#718096] transition-transform ${openFaq === index ? "rotate-180" : ""}`} />
-                  </button>
-                  {openFaq === index && (
-                    <div className="px-4 pb-5 pt-0 md:ml-8 md:px-6">
-                      <p className="text-[14px] leading-relaxed text-[#4A5568]">{item.a}</p>
-                    </div>
-                  )}
-                </div>
-              ))}
+                    <button
+                      className="flex w-full items-start justify-between gap-3 px-5 py-[18px] text-left md:px-6"
+                      onClick={() => setOpenFaq(isOpen ? null : index)}
+                    >
+                      <span className="flex min-w-0 items-start gap-3.5">
+                        <span className="mt-0.5 min-w-[22px] text-[13px] font-bold text-[#0D4D8C]">
+                          0{index + 1}
+                        </span>
+                        <span className="text-[16px] font-semibold leading-snug text-[#0F1A2E]">
+                          {item.q}
+                        </span>
+                      </span>
+                      <ChevronDown
+                        className={`mt-1 h-[18px] w-[18px] flex-shrink-0 text-[#5B6577] transition-transform ${isOpen ? "rotate-180" : ""}`}
+                      />
+                    </button>
+                    {isOpen && (
+                      <div className="ml-[60px] mr-6 border-t border-[#E1E6EE] pb-5 pt-3">
+                        <p className="text-[14.5px] leading-relaxed text-[#1F2A3E]">
+                          {item.a}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         </section>
       </main>
 
+      {/* ===================== Footer ===================== */}
       <footer id="footer" className="bg-[#1A2332] text-white">
         <div className="mx-auto max-w-[1280px] px-4 py-6 md:px-8 md:py-12">
           <div className="mb-6 grid grid-cols-2 gap-x-6 gap-y-5 lg:mb-10 lg:grid-cols-[minmax(0,1.35fr)_minmax(150px,0.65fr)_minmax(220px,0.9fr)] lg:gap-10">
             <div className="col-span-2 max-w-[420px] lg:col-span-1">
               <div className="mb-2 flex items-center md:mb-4">
-                <span className="text-[15px] md:text-[16px]">Льгота.Москва</span>
+                <span className="text-[15px] font-semibold md:text-[16px]">
+                  Льгота.Москва
+                </span>
               </div>
               <p className="text-[12px] leading-relaxed text-[#A0AEC0] md:text-[13px]">
-                Единый агрегатор мер поддержки для ветеранов. Мы помогаем найти и получить доступные льготы.
+                Единый агрегатор мер поддержки для ветеранов. Мы помогаем найти
+                и получить доступные льготы.
               </p>
             </div>
             <div>
-              <h4 className="mb-2 text-[13px] text-[#E2E8F0] md:mb-4 md:text-[14px]">Разделы</h4>
+              <h4 className="mb-2 text-[13px] text-[#E2E8F0] md:mb-4 md:text-[14px]">
+                Разделы
+              </h4>
               <ul className="space-y-1 md:space-y-2">
                 {NAV_ITEMS.map((item) => (
                   <li key={item.label}>
                     <a
                       href={item.href}
-                      onClick={(event) => {
-                        event.preventDefault();
+                      onClick={(e) => {
+                        e.preventDefault();
                         scrollToSection(item.href);
                       }}
                       className="text-[12px] text-[#A0AEC0] transition-colors hover:text-white md:text-[13px]"
@@ -503,7 +920,9 @@ export function HomePage({
               </ul>
             </div>
             <div className="col-span-2 lg:col-span-1">
-              <h4 className="mb-2 text-[13px] text-[#E2E8F0] md:mb-4 md:text-[14px]">Контакты</h4>
+              <h4 className="mb-2 text-[13px] text-[#E2E8F0] md:mb-4 md:text-[14px]">
+                Контакты
+              </h4>
               <div className="grid gap-2 text-[12px] text-[#A0AEC0] sm:grid-cols-3 md:text-[13px] lg:block lg:space-y-3">
                 <p className="flex items-center gap-2">
                   <Phone className="h-3.5 w-3.5 flex-shrink-0 text-[#63B3ED]" />
@@ -525,43 +944,52 @@ export function HomePage({
           </div>
         </div>
       </footer>
-
-      {selectedBenefit && (
-        <BenefitModal benefit={selectedBenefit} onClose={() => setSelectedBenefit(null)} />
-      )}
     </div>
   );
 }
 
-function Section({
+// ---------------------------------------------------------------------------
+//  Building blocks
+// ---------------------------------------------------------------------------
+
+function SectionRow({
   title,
   subtitle,
+  heading,
   children,
   bg = false,
-  id,
   onViewAll,
+  viewAllLabel = "Смотреть все",
 }: {
-  title: string;
-  subtitle?: string;
+  title?: string;
+  subtitle?: string | null;
+  heading?: React.ReactNode;
   children: React.ReactNode;
   bg?: boolean;
-  id?: string;
   onViewAll?: () => void;
+  viewAllLabel?: string;
 }) {
   return (
-    <section id={id} className={bg ? "border-b border-t border-[#E2E8F0] bg-[#FAFBFC]" : ""}>
-      <div className="mx-auto max-w-[1280px] px-4 py-10 md:px-8 md:py-12">
-        <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <div className="min-w-0">
-            <h2 className="text-[20px] text-[#1A1D26]">{title}</h2>
-            {subtitle && <p className="mt-1 text-[14px] text-[#718096]">{subtitle}</p>}
-          </div>
+    <section className={bg ? "border-y border-[#E1E6EE] bg-[#FAFBFD]" : ""}>
+      <div className="mx-auto max-w-[1240px] px-4 py-12 md:px-8 md:py-14">
+        <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
+          {heading ?? (
+            <div className="min-w-0">
+              <h2 className="text-[24px] font-semibold tracking-[-0.02em] text-[#0F1A2E] md:text-[26px]">
+                {title}
+              </h2>
+              {subtitle && (
+                <p className="mt-1.5 text-[14px] text-[#5B6577]">{subtitle}</p>
+              )}
+            </div>
+          )}
           {onViewAll && (
             <button
+              type="button"
               onClick={onViewAll}
-              className="flex w-fit items-center gap-1 text-[14px] text-[#2B6CB0] hover:underline"
+              className="inline-flex flex-shrink-0 items-center gap-1 text-[14px] font-medium text-[#0D4D8C] hover:underline"
             >
-              Смотреть все <ChevronRight className="h-4 w-4" />
+              {viewAllLabel} <ChevronRight className="h-4 w-4" />
             </button>
           )}
         </div>
@@ -571,26 +999,114 @@ function Section({
   );
 }
 
-function BenefitSlider({
-  benefits,
-  onSelect,
-}: {
-  benefits: Benefit[];
-  onSelect: (benefit: Benefit) => void;
-}) {
-  if (benefits.length === 0) {
-    return (
-      <div className="rounded-xl border border-[#E2E8F0] bg-white px-6 py-8 text-center text-[14px] text-[#718096]">
-        В этом разделе пока нет льгот.
-      </div>
-    );
-  }
-
+function CardGrid({ children }: { children: React.ReactNode }) {
   return (
-    <div className="benefit-slider flex snap-x snap-proximity gap-5 overflow-x-auto pb-2 sm:snap-mandatory">
-      {benefits.map((benefit) => (
-        <div key={benefit.id} className="w-[calc(100vw-2rem)] max-w-[360px] flex-none snap-start sm:w-[320px] lg:w-[360px] xl:w-[360px]">
-          <BenefitCard benefit={benefit} onClick={onSelect} />
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      {children}
+    </div>
+  );
+}
+
+function EmptyBox({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="rounded-xl border border-[#E1E6EE] bg-white px-6 py-10 text-center text-[14px] text-[#5B6577]">
+      {children}
+    </div>
+  );
+}
+
+function FilteredGrid({
+  title,
+  subtitle,
+  items,
+  total,
+  loading,
+  loadingMore,
+  onShowMore,
+  onReset,
+}: {
+  title: string;
+  subtitle: string | null;
+  items: Benefit[];
+  total: number;
+  loading: boolean;
+  loadingMore: boolean;
+  onShowMore: () => void;
+  onReset: () => void;
+}) {
+  const hasMore = !loading && items.length < total;
+  return (
+    <section>
+      <div className="mx-auto max-w-[1240px] px-4 py-10 md:px-8 md:py-12">
+        <div className="mb-6 flex items-center justify-between gap-4">
+          <div className="min-w-0">
+            {subtitle && (
+              <div className="mb-1 text-[13px] font-semibold text-[#0D4D8C]">
+                {subtitle}
+              </div>
+            )}
+            <h2 className="text-[22px] font-semibold tracking-[-0.02em] text-[#0F1A2E] md:text-[24px]">
+              {loading
+                ? title
+                : total > 0
+                  ? `${title}: ${total}`
+                  : "Ничего не найдено"}
+            </h2>
+          </div>
+          <button
+            type="button"
+            onClick={onReset}
+            className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-lg border border-[#E1E6EE] bg-white px-3.5 py-2 text-[13.5px] font-medium text-[#1F2A3E] transition-colors hover:border-[#FEB2B2] hover:bg-[#FFF1F1] hover:text-[#C53030]"
+          >
+            <X className="h-3.5 w-3.5" /> Сбросить фильтр
+          </button>
+        </div>
+        {loading ? (
+          <EmptyBox>Загрузка данных…</EmptyBox>
+        ) : items.length > 0 ? (
+          <>
+            <CardGrid>
+              {items.map((b) => (
+                <BenefitCard key={b.id} benefit={b} />
+              ))}
+            </CardGrid>
+            {hasMore && (
+              <div className="mt-8 flex justify-center">
+                <button
+                  type="button"
+                  onClick={onShowMore}
+                  disabled={loadingMore}
+                  className="inline-flex items-center gap-2 rounded-lg border border-[#E1E6EE] bg-white px-5 py-2.5 text-[14px] font-medium text-[#1F2A3E] transition-colors hover:border-[#0D4D8C] hover:text-[#0D4D8C] disabled:opacity-60"
+                >
+                  {loadingMore ? "Загрузка…" : "Показать ещё"}
+                </button>
+              </div>
+            )}
+          </>
+        ) : (
+          <EmptyBox>
+            По запросу ничего не нашлось. Попробуйте изменить запрос или
+            сбросить фильтр.
+          </EmptyBox>
+        )}
+      </div>
+    </section>
+  );
+}
+
+// Horizontal rail for per-category section previews — one row, scroll x.
+function BenefitRail({ items }: { items: Benefit[] }) {
+  if (items.length === 0) {
+    return <EmptyBox>В этом разделе пока нет льгот.</EmptyBox>;
+  }
+  return (
+    <div className="benefit-slider -mx-4 flex snap-x snap-proximity gap-4 overflow-x-auto px-4 pb-2 md:-mx-8 md:px-8">
+      {items.map((b) => (
+        <div
+          key={b.id}
+          className="w-[min(78vw,300px)] flex-none snap-start sm:w-[300px]"
+        >
+          <BenefitCard benefit={b} />
         </div>
       ))}
     </div>

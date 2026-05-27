@@ -1,4 +1,4 @@
-import type { Benefit, PublicTab } from "@/types/benefit";
+import type { Benefit, PopularQuery, PublicTab } from "@/types/benefit";
 
 // In Docker the browser reaches the backend via localhost:8000 (port-forwarded
 // from the host), but the SSR pass runs *inside* the frontend container — it
@@ -13,12 +13,16 @@ const API_BASE_URL =
 export interface FetchBenefitsParams {
   q?: string;
   tab?: string;
+  limit?: number;
+  offset?: number;
 }
 
 export async function fetchBenefits(params: FetchBenefitsParams = {}) {
   const search = new URLSearchParams();
   if (params.q) search.set("q", params.q);
   if (params.tab) search.set("tab", params.tab);
+  if (params.limit != null) search.set("limit", String(params.limit));
+  if (params.offset != null) search.set("offset", String(params.offset));
 
   const response = await fetch(`${API_BASE_URL}/api/benefits?${search.toString()}`, {
     cache: "no-store",
@@ -48,4 +52,14 @@ export async function fetchTabs() {
     throw new Error("Failed to load tabs");
   }
   return (await response.json()) as PublicTab[];
+}
+
+export async function fetchPopularQueries() {
+  const response = await fetch(`${API_BASE_URL}/api/popular-queries`, {
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new Error("Failed to load popular queries");
+  }
+  return (await response.json()) as PopularQuery[];
 }

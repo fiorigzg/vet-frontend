@@ -6,6 +6,10 @@ export interface BenefitTab {
 export interface Benefit {
   id: number;
   title: string;
+  category: string;
+  value: string;
+  kind: string;
+  regulationLevel: string;
   validity: string;
   description: string;
   summary: string;
@@ -30,4 +34,12 @@ export interface PublicTab {
   slug: string;
   name: string;
   subtitle: string;
+  icon: string;
+}
+
+export interface PopularQuery {
+  id: number;
+  text: string;
+  sort_order: number;
+  is_active: boolean;
 }

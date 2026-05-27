@@ -69,6 +69,16 @@ export default function ProtectedAdminLayout({
             Tabs
           </Link>
           <Link
+            href="/admin/popular-queries"
+            className={
+              isActive("/admin/popular-queries")
+                ? "font-semibold text-[#1a1b22]"
+                : "text-[#454652] hover:text-[#1a1b22]"
+            }
+          >
+            Часто ищут
+          </Link>
+          <Link
             href="/admin/dashboard"
             className={
               isActive("/admin/dashboard")

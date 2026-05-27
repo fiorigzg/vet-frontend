@@ -5,10 +5,19 @@ export interface AdminBenefitTab {
 }
 
 export interface AdminBenefitSourceDraft {
+  title?: string | null;
+  summary?: string | null;
+  description?: string | null;
+  conditions?: string | null;
+  who_applies?: string | null;
+  validity?: string | null;
+  value?: string | null;
+  regulation_level?: string | null;
+  category_slug?: string | null;
+  // Legacy crawler fields (drafts created before the extraction schema change).
   category?: string | null;
   benefit?: string | null;
   discount_value?: string | null;
-  conditions?: string | null;
   documents?: string | null;
   [key: string]: unknown;
 }
@@ -25,6 +34,7 @@ export interface AdminBenefit {
   kind: string;
   format: string;
   value: string;
+  regulation_level: string;
   description: string;
   summary: string;
   conditions: string;

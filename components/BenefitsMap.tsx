@@ -1,9 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { X, MapPin } from "lucide-react";
 import type { Benefit } from "@/types/benefit";
 import { fetchBenefits } from "@/lib/api";
+import { pluralRu } from "@/lib/plural";
 import {
   loadYandexMaps,
   parseCoordinate,
@@ -11,7 +14,6 @@ import {
   type YMapsApi,
   type YMapsMap,
 } from "@/lib/yandexMaps";
-import { BenefitModal } from "@/components/BenefitModal";
 
 const MOSCOW: [number, number] = [55.751244, 37.618423];
 
@@ -31,11 +33,11 @@ interface Located {
 }
 
 export function BenefitsMap() {
+  const router = useRouter();
   const mapBoxRef = useRef<HTMLDivElement | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [groups, setGroups] = useState<Located[]>([]);
-  const [selected, setSelected] = useState<Benefit | null>(null);
   const [picker, setPicker] = useState<Located | null>(null);
 
   useEffect(() => {
@@ -145,7 +147,7 @@ export function BenefitsMap() {
               m.setCenter([g.lat, g.lng], Math.max(z, 15), { duration: 450 });
             }
             window.setTimeout(() => {
-              if (g.items.length === 1) setSelected(g.items[0]);
+              if (g.items.length === 1) router.push(`/benefits/${g.items[0].id}`);
               else setPicker(g);
             }, 480);
           });
@@ -188,7 +190,7 @@ export function BenefitsMap() {
       cancelled = true;
       map?.destroy();
     };
-  }, [loading, error, groups]);
+  }, [loading, error, groups, router]);
 
   const total = groups.reduce((n, g) => n + g.items.length, 0);
 
@@ -201,7 +203,7 @@ export function BenefitsMap() {
         <p className="mb-8 text-center text-[15px] text-[#718096]">
           {loading
             ? "Загрузка карты…"
-            : `${total} мер в ${groups.length} точках — нажмите метку, чтобы открыть`}
+            : `${total} ${pluralRu(total, ["мера", "меры", "мер"])} в ${groups.length} ${pluralRu(groups.length, ["точке", "точках", "точках"])} — нажмите метку, чтобы открыть`}
         </p>
 
         <div className="relative h-[clamp(360px,60vh,600px)] w-full overflow-hidden rounded-2xl border border-[#E2E8F0] bg-[#E2E8F0]">
@@ -242,12 +244,10 @@ export function BenefitsMap() {
                 <ul className="space-y-2">
                   {picker.items.map((b) => (
                     <li key={b.id}>
-                      <button
-                        onClick={() => {
-                          setSelected(b);
-                          setPicker(null);
-                        }}
-                        className="w-full rounded-xl border border-[#E2E8F0] px-4 py-3 text-left transition-colors hover:border-[#2B6CB0] hover:bg-[#EBF4FF] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2B6CB0]"
+                      <Link
+                        href={`/benefits/${b.id}`}
+                        onClick={() => setPicker(null)}
+                        className="block w-full rounded-xl border border-[#E2E8F0] px-4 py-3 text-left transition-colors hover:border-[#2B6CB0] hover:bg-[#EBF4FF] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2B6CB0]"
                       >
                         <span className="block text-[15px] text-[#1A1D26]">
                           {b.title}
@@ -257,7 +257,7 @@ export function BenefitsMap() {
                             {b.address}
                           </span>
                         )}
-                      </button>
+                      </Link>
                     </li>
                   ))}
                 </ul>
@@ -266,10 +266,6 @@ export function BenefitsMap() {
           )}
         </div>
       </div>
-
-      {selected && (
-        <BenefitModal benefit={selected} onClose={() => setSelected(null)} />
-      )}
     </section>
   );
 }
