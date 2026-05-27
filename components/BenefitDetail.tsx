@@ -6,7 +6,6 @@ import {
   ArrowLeft,
   ChevronLeft,
   ChevronRight,
-  MapPin,
   Phone,
   Star,
   Calendar,
@@ -183,22 +182,14 @@ export function BenefitDetail({ benefit }: BenefitDetailProps) {
             </div>
 
             <div className="bg-[#FAFBFC] p-4 md:p-6">
-              <YandexMap
-                address={benefit.address}
-                className="mb-4 h-[180px] sm:h-[200px]"
-                lat={benefit.lat}
-                lng={benefit.lng}
-                title={benefit.title}
-              />
-
-              {benefit.address && (
-                <div className="mb-5">
-                  <h2 className="mb-1.5 text-[13px] uppercase tracking-wide text-[#718096]">Адрес</h2>
-                  <p className="flex items-start gap-2 text-[14px] text-[#1A1D26]">
-                    <MapPin className="mt-0.5 h-4 w-4 flex-shrink-0 text-[#2B6CB0]" />
-                    {benefit.address}
-                  </p>
-                </div>
+              {benefit.lat != null && benefit.lng != null && (
+                <YandexMap
+                  address={benefit.address}
+                  className="mb-4 h-[180px] sm:h-[200px]"
+                  lat={benefit.lat}
+                  lng={benefit.lng}
+                  title={benefit.title}
+                />
               )}
 
               {benefit.contacts && (

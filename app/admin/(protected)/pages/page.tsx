@@ -28,6 +28,7 @@ interface DraftBenefit {
   value?: string | null;
   regulation_level?: string | null;
   category_slug?: string | null;
+  contacts?: string | null;
   // Legacy crawler fields (pre-schema-change drafts).
   benefit?: string | null;
   category?: string | null;
@@ -736,6 +737,12 @@ function DraftBenefitsList({
               <p className="mt-1.5 text-xs text-[#454652]">
                 <span className="font-semibold uppercase tracking-wide">Срок действия: </span>
                 {draft.validity}
+              </p>
+            )}
+            {draft.contacts && (
+              <p className="mt-1.5 text-xs text-[#454652]">
+                <span className="font-semibold uppercase tracking-wide">Контакты: </span>
+                {draft.contacts}
               </p>
             )}
           </div>

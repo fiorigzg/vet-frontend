@@ -14,6 +14,7 @@ export interface AdminBenefitSourceDraft {
   value?: string | null;
   regulation_level?: string | null;
   category_slug?: string | null;
+  contacts?: string | null;
   // Legacy crawler fields (drafts created before the extraction schema change).
   category?: string | null;
   benefit?: string | null;

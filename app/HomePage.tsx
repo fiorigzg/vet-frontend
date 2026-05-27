@@ -14,19 +14,6 @@ import {
   Clock,
   Check,
   X,
-  Heart,
-  GraduationCap,
-  Bus,
-  Home,
-  Scale,
-  BedDouble,
-  Briefcase,
-  Users,
-  Landmark,
-  Wallet,
-  HeartHandshake,
-  Award,
-  type LucideIcon,
 } from "lucide-react";
 import { fetchBenefits } from "@/lib/api";
 import { pluralRu } from "@/lib/plural";
@@ -66,75 +53,13 @@ const FAQ_ITEMS = [
   },
 ];
 
-// ---------------------------------------------------------------------------
-//  Category icons — admin categories carry no icon, so map by slug/name with a
-//  sensible fallback. Drives the icons in the category grid and section heads.
-// ---------------------------------------------------------------------------
-const CATEGORY_ICON_BY_SLUG: Record<string, LucideIcon> = {
-  med: Heart,
-  zdorovie: Heart,
-  health: Heart,
-  edu: GraduationCap,
-  obrazovanie: GraduationCap,
-  trans: Bus,
-  transport: Bus,
-  home: Home,
-  zhilyo: Home,
-  zhilye: Home,
-  law: Scale,
-  yur: Scale,
-  legal: Scale,
-  rest: BedDouble,
-  sanatorii: BedDouble,
-  otdyh: BedDouble,
-  work: Briefcase,
-  trudoustroystvo: Briefcase,
-  rabota: Briefcase,
-  fam: Users,
-  family: Users,
-  semya: Users,
-  kultura: Landmark,
-  culture: Landmark,
-  finansy: Wallet,
-  money: Wallet,
-  soc: HeartHandshake,
-  "soc-podderzhka": HeartHandshake,
-  social: HeartHandshake,
-};
-const NAME_KEYWORD_ICON: Array<[RegExp, LucideIcon]> = [
-  [/здоров|медиц|клин/i, Heart],
-  [/образов|учеб|школ|вуз/i, GraduationCap],
-  [/транспорт|проезд|метро/i, Bus],
-  [/жил|ипотек|кварт/i, Home],
-  [/юрид|правов|закон/i, Scale],
-  [/отдых|санатор|туризм|культур|музе|театр/i, BedDouble],
-  [/работ|труд|занятост|карьер/i, Briefcase],
-  [/семь|дет|ребён|ребен/i, Users],
-  [/финанс|выплат|деньг|пособи/i, Wallet],
-];
-function iconForCategory(tab: PublicTab): LucideIcon {
-  const bySlug = CATEGORY_ICON_BY_SLUG[tab.slug.toLowerCase()];
-  if (bySlug) return bySlug;
-  for (const [re, icon] of NAME_KEYWORD_ICON) {
-    if (re.test(tab.name) || re.test(tab.slug)) return icon;
-  }
-  return Award;
-}
-
-// Category badge: an uploaded icon (set in the admin) when present, otherwise
-// the slug/name-mapped Lucide icon.
+// Category badge: shows the icon uploaded in /admin/tabs if any, otherwise
+// renders nothing (no auto-derived fallback).
 function CategoryIcon({ tab }: { tab: PublicTab }) {
-  if (tab.icon) {
-    return (
-      <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-[10px] bg-[#E7F0FB]">
-        <img src={tab.icon} alt="" className="h-6 w-6 object-contain" />
-      </div>
-    );
-  }
-  const Icon = iconForCategory(tab);
+  if (!tab.icon) return null;
   return (
-    <div className="flex h-10 w-10 items-center justify-center rounded-[10px] bg-[#E7F0FB] text-[#0D4D8C]">
-      <Icon className="h-5 w-5" />
+    <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-[10px] bg-[#E7F0FB]">
+      <img src={tab.icon} alt="" className="h-6 w-6 object-contain" />
     </div>
   );
 }

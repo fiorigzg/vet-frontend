@@ -397,6 +397,7 @@ const DRAFT_FIELD_LABELS: Array<[string, string]> = [
   ["value", "Выгода"],
   ["regulation_level", "Уровень"],
   ["category_slug", "Категория (slug)"],
+  ["contacts", "Контакты (телефон)"],
 ];
 
 function SourceDraftSection({ benefit }: { benefit: AdminBenefit }) {
