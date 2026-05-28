@@ -76,7 +76,7 @@ export default function ProtectedAdminLayout({
                 : "text-[#454652] hover:text-[#1a1b22]"
             }
           >
-            Часто ищут
+            Searches
           </Link>
           <Link
             href="/admin/dashboard"

@@ -1020,16 +1020,22 @@ function FilteredGrid({
 }
 
 // Horizontal rail for per-category section previews — one row, scroll x.
+// `-mx-4 md:-mx-8` extends the rail to the parent container's box edges
+// (cancelling SectionRow's px-4/8). With no internal padding, four cards at
+// 290px + gap-4 fit inside 1240px (`4×290 + 3×16 = 1208`). On mobile the
+// cards keep their fluid `min(78vw, 300px)` width so one card with a peek.
+// `rounded-xl` matches the BenefitCard radius so the rail sits as a single
+// rounded panel rather than a flush horizontal strip.
 function BenefitRail({ items }: { items: Benefit[] }) {
   if (items.length === 0) {
     return <EmptyBox>В этом разделе пока нет льгот.</EmptyBox>;
   }
   return (
-    <div className="benefit-slider -mx-4 flex snap-x snap-proximity gap-4 overflow-x-auto px-4 pb-2 md:-mx-8 md:px-8">
+    <div className="benefit-slider -mx-4 flex snap-x snap-proximity gap-4 overflow-x-auto rounded-xl pb-2 md:-mx-8">
       {items.map((b) => (
         <div
           key={b.id}
-          className="w-[min(78vw,300px)] flex-none snap-start sm:w-[300px]"
+          className="w-[min(78vw,300px)] flex-none snap-start sm:w-[290px]"
         >
           <BenefitCard benefit={b} />
         </div>
