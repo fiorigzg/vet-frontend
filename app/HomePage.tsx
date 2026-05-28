@@ -1031,11 +1031,11 @@ function BenefitRail({ items }: { items: Benefit[] }) {
     return <EmptyBox>В этом разделе пока нет льгот.</EmptyBox>;
   }
   return (
-    <div className="benefit-slider -mx-4 flex snap-x snap-proximity gap-4 overflow-x-auto rounded-xl pb-2 md:-mx-8">
+    <div className="benefit-slider -mx-4 flex snap-x snap-mandatory gap-4 overflow-x-auto px-4 pb-2 scroll-px-4 md:-mx-8 md:snap-proximity md:pl-0 md:pr-8 md:scroll-pl-0">
       {items.map((b) => (
         <div
           key={b.id}
-          className="w-[min(78vw,300px)] flex-none snap-start sm:w-[290px]"
+          className="w-[calc(100vw-3.5rem)] flex-none snap-start sm:w-[290px]"
         >
           <BenefitCard benefit={b} />
         </div>
